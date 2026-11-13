@@ -1,0 +1,40 @@
+# =============================================================================
+# Terraform Variables Example for FindWorker Backend Infrastructure
+# Copy this file to terraform.tfvars and customize if needed.
+# =============================================================================
+
+aws_region   = "us-east-1"
+project_name = "findworker"
+environment  = "dev"
+
+# VPC & Networking
+vpc_cidr                 = "10.0.0.0/16"
+public_subnet_cidrs      = ["10.0.1.0/24", "10.0.2.0/24"]
+private_app_subnet_cidrs = ["10.0.11.0/24", "10.0.12.0/24"]
+database_subnet_cidrs    = ["10.0.21.0/24", "10.0.22.0/24"]
+single_nat_gateway       = true # true saves ~$35/mo in dev/staging
+
+# Aurora PostgreSQL (Serverless v2 Min Spec)
+db_name               = "findworker"
+db_username           = "postgres"
+aurora_engine_version = "15.4"
+aurora_min_capacity   = 0.5 # 0.5 ACU min spec (~1GB RAM)
+aurora_max_capacity   = 2.0
+aurora_instance_count = 1
+deletion_protection   = false
+skip_final_snapshot   = true
+
+# ElastiCache Redis (Min Spec)
+redis_node_type = "cache.t4g.micro" # Graviton2 min spec
+redis_num_nodes = 1
+redis_multi_az  = false
+
+# Placeholder image toggle (keep true until Docker images are pushed to ECR)
+use_placeholder_image = true
+
+# CloudWatch log retention in days
+log_retention_days = 7
+
+# Optional ACM certificate for HTTPS (leave empty for HTTP)
+# certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxx-xxxx"
+

@@ -1,0 +1,90 @@
+name: "Terraform Infrastructure Pipeline (Manual)"
+
+# Exclusively manual execution - no automatic runs on push or pull requests
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Select the Terraform stage to execute"
+        required: true
+        default: "plan"
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+          - validate_only
+      confirm_dangerous_action:
+        description: "Check this box to confirm execution if selecting 'apply' or 'destroy'"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: "Manual Terraform: ${{ github.event.inputs.stage }}"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - name: "Checkout Source Code"
+        uses: actions/checkout@v4
+
+      - name: "Configure AWS Credentials from GitHub Secrets"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || vars.AWS_REGION || 'us-east-1' }}
+
+      - name: "Setup Terraform CLI"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: false
+
+      - name: "Stage: Format & Initialization"
+        id: init
+        run: |
+          echo "Checking Terraform formatting..."
+          terraform fmt -check -diff || true
+          echo "Initializing Terraform..."
+          terraform init
+
+      - name: "Stage: Validate"
+        id: validate
+        run: |
+          echo "Validating Terraform configuration..."
+          terraform validate -no-color
+
+      - name: "Safety Guard for Apply/Destroy"
+        if: (github.event.inputs.stage == 'apply' || github.event.inputs.stage == 'destroy') && github.event.inputs.confirm_dangerous_action != 'true'
+        run: |
+          echo "::error::Execution aborted! To run 'apply' or 'destroy', you must check the 'confirm_dangerous_action' checkbox."
+          exit 1
+
+      - name: "Stage: Plan"
+        id: plan
+        if: github.event.inputs.stage == 'plan' || github.event.inputs.stage == 'apply'
+        run: |
+          echo "Generating Terraform execution plan..."
+          terraform plan -no-color -out=tfplan
+
+      - name: "Stage: Apply"
+        id: apply
+        if: github.event.inputs.stage == 'apply' && github.event.inputs.confirm_dangerous_action == 'true'
+        run: |
+          echo "Applying Terraform changes to AWS..."
+          terraform apply -auto-approve tfplan
+
+      - name: "Stage: Destroy"
+        id: destroy
+        if: github.event.inputs.stage == 'destroy' && github.event.inputs.confirm_dangerous_action == 'true'
+        run: |
+          echo "Destroying Terraform managed resources in AWS..."
+          terraform destroy -auto-approve

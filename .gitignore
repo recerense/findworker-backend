@@ -7,3 +7,14 @@ db.sqlite3
 .pytest_cache/
 .coverage
 htmlcov/
+
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!terraform.tfvars.example
+*.tfplan
