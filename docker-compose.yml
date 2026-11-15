@@ -1,0 +1,32 @@
+
+  services:
+    db:
+      image: imresamu/postgis-arm64:17-3.5-alpine
+      container_name: findworker-db
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: findworker
+        POSTGRES_USER: findworker
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      ports:
+        - "127.0.0.1:5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U findworker -d findworker"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
+
+    redis:
+      image: redis:7-alpine
+      container_name: findworker-redis
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:6379:6379"
+      volumes:
+        - redis_data:/data
+
+  volumes:
+    postgres_data:
+    redis_data:

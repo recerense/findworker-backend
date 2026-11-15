@@ -9,12 +9,18 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     SECRET_KEY: str
+    OTP_HMAC_SECRET: str
 
     DB_NAME: str
     DB_USER: str
     DB_PASSWORD: str
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
+
+    JWT_SECRET_KEY: str
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
