@@ -1,24 +1,28 @@
+import logging
 from sqlalchemy import create_engine
-from sqlalchemy.engine import URL
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
 
-database_url = URL.create(
-    drivername="postgresql+psycopg",
-    username=settings.DB_USER,
-    password=settings.DB_PASSWORD,
-    host=settings.DB_HOST,
-    port=settings.DB_PORT,
-    database=settings.DB_NAME,
-)
+db_url = settings.effective_database_url
 
-engine = create_engine(
-    database_url,
-    pool_pre_ping=True,
-    echo=settings.DEBUG,
-)
+# Configure engine arguments depending on DB dialect
+engine_kwargs = {
+    "echo": settings.DEBUG,
+}
+
+if db_url.startswith("sqlite"):
+    # SQLite requires check_same_thread=False for FastAPI multithreaded requests
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL / Aurora connection pooling options
+    engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+
+engine = create_engine(db_url, **engine_kwargs)
 
 SessionLocal = sessionmaker(
     bind=engine,
@@ -28,10 +32,15 @@ SessionLocal = sessionmaker(
 
 
 class Base(DeclarativeBase):
+    """Base declarative class for all SQLAlchemy database models."""
     pass
 
 
 def get_db():
+    """
+    FastAPI dependency that yields an isolated database session per request.
+    Ensures safe session lifecycle and closes session upon completion.
+    """
     db = SessionLocal()
     try:
         yield db
