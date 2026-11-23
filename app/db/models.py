@@ -45,6 +45,17 @@ class BookingStatus(str, enum.Enum):
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+
+
+class NotificationType(str, enum.Enum):
+    REQUEST_CREATED = "REQUEST_CREATED"
+    REQUEST_ACCEPTED = "REQUEST_ACCEPTED"
+    REQUEST_REJECTED = "REQUEST_REJECTED"
+    JOB_IN_PROGRESS = "JOB_IN_PROGRESS"
+    JOB_COMPLETED = "JOB_COMPLETED"
+    BOOKING_CANCELLED = "BOOKING_CANCELLED"
+    GENERAL = "GENERAL"
 
 
 class User(Base):
@@ -70,6 +81,7 @@ class User(Base):
     customer_bookings: Mapped[List["Booking"]] = relationship("Booking", back_populates="customer", cascade="all, delete-orphan")
     reviews_given: Mapped[List["Review"]] = relationship("Review", back_populates="customer")
     worker_profile: Mapped[Optional["WorkerProfile"]] = relationship("WorkerProfile", back_populates="user", uselist=False)
+    notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
 
 class CustomerAddress(Base):
@@ -192,3 +204,24 @@ class Review(Base):
     booking: Mapped["Booking"] = relationship("Booking", back_populates="review")
     customer: Mapped["User"] = relationship("User", back_populates="reviews_given")
     worker: Mapped["WorkerProfile"] = relationship("WorkerProfile", back_populates="reviews")
+
+
+class Notification(Base):
+    """
+    In-app notification for customers.
+    Alerts on booking status changes (Accepted, Rejected, In Progress, Completed).
+    """
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(150), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    notification_type: Mapped[str] = mapped_column(String(50), default=NotificationType.GENERAL.value, index=True, nullable=False)
+    reference_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # e.g., booking_id / request_id
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="notifications")
+

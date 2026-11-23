@@ -53,8 +53,9 @@ The Customer Service interacts with the following relational models defined in [
 | **`CustomerAddress`** | `customer_addresses` | Saved customer addresses with GPS coordinates (`latitude`, `longitude`) for service location. |
 | **`ServiceCategory`** | `service_categories` | Catalog of trade categories (Plumbing, Electrical, Carpentry, AC Repair, Cleaning, Painting). |
 | **`WorkerProfile`** | `worker_profiles` | Trade professional details, hourly rate, rating, coordinates, and availability status. |
-| **`Booking`** | `bookings` | Customer service appointment orders with status tracking (`PENDING`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`). |
+| **`Booking`** | `bookings` | Customer service appointment orders with status tracking (`PENDING`, `CONFIRMED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED`, `REJECTED`). |
 | **`Review`** | `reviews` | Customer feedback and 1-to-5 star ratings for completed service bookings. |
+| **`Notification`** | `notifications` | In-app alerts for status updates (`REQUEST_CREATED`, `REQUEST_ACCEPTED`, `REQUEST_REJECTED`, `JOB_COMPLETED`). |
 
 ---
 
@@ -84,14 +85,27 @@ All endpoints are prefixed with `/api/customer`:
 | `GET` | `/api/customer/services/nearby` | No | Search nearby workers using customer GPS `latitude` and `longitude` within radius |
 | `GET` | `/api/customer/workers/{id}` | No | Get public worker profile details, experience, rates, and past reviews |
 
-### 4. Bookings & Reviews
+### 4. Service Requests & Bookings (Accept, Reject, Cancel, Review)
+*Note: Both `/api/customer/requests` and `/api/customer/bookings` are supported identically.*
+
 | Method | Endpoint | Auth Required | Description |
 | :--- | :--- | :---: | :--- |
-| `POST` | `/api/customer/bookings` | **Yes** | Book a service with a selected worker |
-| `GET` | `/api/customer/bookings` | **Yes** | List customer bookings (filterable by status) |
-| `GET` | `/api/customer/bookings/{id}` | **Yes** | View single booking details (IDOR protected) |
-| `POST` | `/api/customer/bookings/{id}/cancel` | **Yes** | Cancel a pending or confirmed booking |
+| `POST` | `/api/customer/requests` | **Yes** | Request a service with appointment schedule, location, and issue details |
+| `GET` | `/api/customer/requests` | **Yes** | List customer service requests (filterable by status) |
+| `GET` | `/api/customer/requests/{id}` | **Yes** | View single service request details (IDOR protected) |
+| `POST` | `/api/customer/requests/{id}/accept` | **Yes** | Accept a service request, confirmed schedule, or worker quote |
+| `POST` | `/api/customer/requests/{id}/reject` | **Yes** | Reject a proposal or unwanted request with a reason |
+| `POST` | `/api/customer/requests/{id}/cancel` | **Yes** | Cancel a pending or confirmed service request |
 | `POST` | `/api/customer/bookings/{id}/review` | **Yes** | Submit 1–5 star rating and feedback for a completed service |
+
+### 5. In-App Notifications
+| Method | Endpoint | Auth Required | Description |
+| :--- | :--- | :---: | :--- |
+| `GET` | `/api/customer/notifications` | **Yes** | List customer notifications (with unread count & pagination) |
+| `GET` | `/api/customer/notifications/unread-count` | **Yes** | Quick count of unread notifications for UI bell badge |
+| `PUT` | `/api/customer/notifications/{id}/read` | **Yes** | Mark a single notification as read |
+| `PUT` | `/api/customer/notifications/read-all` | **Yes** | Mark all customer notifications as read |
+| `POST` | `/api/customer/notifications/simulate` | **Yes** | Simulate incoming worker event (Accepted, Rejected, Job Started, Completed) |
 
 ---
 

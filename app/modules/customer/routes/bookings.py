@@ -16,9 +16,11 @@ from sqlalchemy.orm import Session
 from app.db.models import User
 from app.db.session import get_db
 from app.modules.customer.schemas import (
+    BookingAcceptRequest,
     BookingCancelRequest,
     BookingCreateRequest,
     BookingOut,
+    BookingRejectRequest,
     ReviewCreateRequest,
     ReviewOut,
 )
@@ -114,6 +116,44 @@ def cancel_booking(
     - Records the cancellation reason and updates status to CANCELLED
     """
     return CustomerBookingService.cancel_booking(db, current_customer, booking_id, payload)
+
+
+@router.post(
+    "/{booking_id}/accept",
+    response_model=BookingOut,
+    summary="Accept a service request or worker proposal",
+    description="Customer accepts a service request, confirmed schedule, or worker quote. Status transitions to CONFIRMED and sends a notification.",
+)
+def accept_booking(
+    booking_id: int,
+    payload: Optional[BookingAcceptRequest] = None,
+    current_customer: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+) -> BookingOut:
+    """
+    Accepts/confirms a service request.
+    Verifies ownership and valid status before transitioning to CONFIRMED.
+    """
+    return CustomerBookingService.accept_booking(db, current_customer, booking_id, payload)
+
+
+@router.post(
+    "/{booking_id}/reject",
+    response_model=BookingOut,
+    summary="Reject a service request or proposal",
+    description="Customer rejects an incoming worker proposal, quotation, or unwanted request with a reason. Status transitions to REJECTED and sends a notification.",
+)
+def reject_booking(
+    booking_id: int,
+    payload: BookingRejectRequest,
+    current_customer: User = Depends(get_current_customer),
+    db: Session = Depends(get_db),
+) -> BookingOut:
+    """
+    Rejects a service request or proposal.
+    Records the rejection reason and transitions status to REJECTED.
+    """
+    return CustomerBookingService.reject_booking(db, current_customer, booking_id, payload)
 
 
 @router.post(

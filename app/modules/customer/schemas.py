@@ -232,3 +232,56 @@ class BookingOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     review: Optional[ReviewOut] = None
+
+
+class BookingRejectRequest(BaseModel):
+    """Payload for rejecting a service request or worker proposal."""
+    rejection_reason: str = Field(..., min_length=5, max_length=500, description="Reason for rejecting the service request")
+
+
+class BookingAcceptRequest(BaseModel):
+    """Payload for customer accepting a service quote, schedule, or proposal."""
+    note: Optional[str] = Field(None, max_length=500, description="Optional acceptance confirmation note")
+
+
+# =============================================================================
+# Notification Schemas
+# =============================================================================
+
+class NotificationOut(BaseModel):
+    """In-app notification item representation."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    title: str
+    message: str
+    notification_type: str
+    reference_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationListResponse(BaseModel):
+    """Paginated notification list response with total unread count."""
+    notifications: List[NotificationOut]
+    unread_count: int
+    total: int
+
+
+class UnreadCountResponse(BaseModel):
+    """Quick response for UI notification badge count."""
+    unread_count: int
+
+
+class SimulateNotificationRequest(BaseModel):
+    """
+    Utility payload to simulate a worker-driven notification event
+    (e.g. Worker Accepted, Worker Rejected, Job Started, Job Completed).
+    Allows customer service to be tested standalone without waiting for worker service.
+    """
+    title: str = Field(..., min_length=3, max_length=150)
+    message: str = Field(..., min_length=5, max_length=1000)
+    notification_type: str = Field("REQUEST_ACCEPTED", description="One of: REQUEST_ACCEPTED, REQUEST_REJECTED, JOB_IN_PROGRESS, JOB_COMPLETED, GENERAL")
+    reference_id: Optional[int] = Field(None, description="Related booking / request ID")
+

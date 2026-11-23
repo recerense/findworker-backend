@@ -22,6 +22,8 @@ from app.db.models import (
     Booking,
     BookingStatus,
     CustomerAddress,
+    Notification,
+    NotificationType,
     Review,
     ServiceCategory,
     User,
@@ -29,19 +31,25 @@ from app.db.models import (
     WorkerProfile,
 )
 from app.modules.customer.schemas import (
+    BookingAcceptRequest,
     BookingCancelRequest,
     BookingCreateRequest,
     BookingOut,
+    BookingRejectRequest,
     CustomerAddressCreate,
     CustomerAddressOut,
     CustomerLoginRequest,
     CustomerProfileOut,
     CustomerProfileUpdate,
     CustomerRegisterRequest,
+    NotificationListResponse,
+    NotificationOut,
     ReviewCreateRequest,
     ReviewOut,
     ServiceCategoryOut,
+    SimulateNotificationRequest,
     TokenResponse,
+    UnreadCountResponse,
     WorkerDetailOut,
     WorkerPublicOut,
     WorkerReviewSummary,
@@ -483,6 +491,18 @@ class CustomerBookingService:
             total_price=total_price,
         )
         db.add(new_booking)
+        db.flush()
+
+        # Send in-app notification to customer
+        notification = Notification(
+            user_id=current_user.id,
+            title="Service Request Sent",
+            message=f"Your request {reference} has been sent to {worker.user.full_name}. We will notify you once accepted.",
+            notification_type=NotificationType.REQUEST_CREATED.value,
+            reference_id=new_booking.id,
+            is_read=False,
+        )
+        db.add(notification)
         db.commit()
         db.refresh(new_booking)
 
@@ -586,7 +606,127 @@ class CustomerBookingService:
         booking.cancellation_reason = data.cancellation_reason.strip()
         booking.updated_at = datetime.now(timezone.utc)
 
+        notification = Notification(
+            user_id=current_user.id,
+            title="Service Request Cancelled",
+            message=f"You cancelled request {booking.booking_reference}. Reason: {data.cancellation_reason.strip()}",
+            notification_type=NotificationType.BOOKING_CANCELLED.value,
+            reference_id=booking.id,
+            is_read=False,
+        )
+        db.add(notification)
         db.add(booking)
+        db.commit()
+        db.refresh(booking)
+
+        return CustomerBookingService._format_booking_out(booking)
+
+    @staticmethod
+    def accept_booking(
+        db: Session,
+        current_user: User,
+        booking_id: int,
+        data: Optional[BookingAcceptRequest] = None,
+    ) -> BookingOut:
+        """
+        Customer accepts an updated schedule, quote, or worker proposal for a booking.
+        Transitions status to CONFIRMED.
+        Creates an in-app notification for the customer.
+        """
+        stmt = (
+            select(Booking)
+            .options(
+                joinedload(Booking.worker).joinedload(WorkerProfile.user),
+                joinedload(Booking.service_category),
+                joinedload(Booking.review),
+            )
+            .where(
+                Booking.id == booking_id,
+                Booking.customer_id == current_user.id,
+            )
+        )
+        booking = db.execute(stmt).unique().scalar_one_or_none()
+        if not booking:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found or access denied.",
+            )
+
+        if booking.status in [BookingStatus.CANCELLED.value, BookingStatus.REJECTED.value, BookingStatus.COMPLETED.value]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot accept a booking that is currently {booking.status}.",
+            )
+
+        booking.status = BookingStatus.CONFIRMED.value
+        booking.updated_at = datetime.now(timezone.utc)
+        db.add(booking)
+
+        notification = Notification(
+            user_id=current_user.id,
+            title="Service Request Confirmed",
+            message=f"You have confirmed service request {booking.booking_reference}. Worker will arrive as scheduled.",
+            notification_type=NotificationType.REQUEST_ACCEPTED.value,
+            reference_id=booking.id,
+            is_read=False,
+        )
+        db.add(notification)
+        db.commit()
+        db.refresh(booking)
+
+        return CustomerBookingService._format_booking_out(booking)
+
+    @staticmethod
+    def reject_booking(
+        db: Session,
+        current_user: User,
+        booking_id: int,
+        data: BookingRejectRequest,
+    ) -> BookingOut:
+        """
+        Customer rejects a service request, quotation, or proposal.
+        Transitions status to REJECTED.
+        Creates an in-app notification for the customer.
+        """
+        stmt = (
+            select(Booking)
+            .options(
+                joinedload(Booking.worker).joinedload(WorkerProfile.user),
+                joinedload(Booking.service_category),
+                joinedload(Booking.review),
+            )
+            .where(
+                Booking.id == booking_id,
+                Booking.customer_id == current_user.id,
+            )
+        )
+        booking = db.execute(stmt).unique().scalar_one_or_none()
+        if not booking:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Booking not found or access denied.",
+            )
+
+        if booking.status in [BookingStatus.CANCELLED.value, BookingStatus.REJECTED.value, BookingStatus.COMPLETED.value]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot reject a booking that is currently {booking.status}.",
+            )
+
+        booking.status = BookingStatus.REJECTED.value
+        booking.cancellation_reason = data.rejection_reason.strip()
+        booking.updated_at = datetime.now(timezone.utc)
+        db.add(booking)
+
+        notification = Notification(
+            user_id=current_user.id,
+            title="Service Request Rejected",
+            message=f"Service request {booking.booking_reference} was rejected. Reason: {data.rejection_reason.strip()}",
+            notification_type=NotificationType.REQUEST_REJECTED.value,
+            reference_id=booking.id,
+            is_read=False,
+        )
+        db.add(notification)
         db.commit()
         db.refresh(booking)
 
@@ -662,3 +802,116 @@ class CustomerBookingService:
         db.refresh(new_review)
 
         return ReviewOut.model_validate(new_review)
+
+
+class CustomerNotificationService:
+    """Manages in-app customer notifications and status alerts."""
+
+    @staticmethod
+    def list_notifications(
+        db: Session,
+        current_user: User,
+        unread_only: bool = False,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> NotificationListResponse:
+        """
+        Lists notifications for the authenticated customer.
+        Supports filtering by unread status.
+        Returns notification items, total count, and unread count.
+        """
+        query = select(Notification).where(Notification.user_id == current_user.id)
+        if unread_only:
+            query = query.where(Notification.is_read == False)
+
+        total_stmt = select(func.count(Notification.id)).where(Notification.user_id == current_user.id)
+        total_count = db.execute(total_stmt).scalar() or 0
+
+        unread_stmt = select(func.count(Notification.id)).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False,
+        )
+        unread_count = db.execute(unread_stmt).scalar() or 0
+
+        query = query.order_by(Notification.created_at.desc()).offset(skip).limit(limit)
+        items = db.execute(query).scalars().all()
+
+        return NotificationListResponse(
+            notifications=[NotificationOut.model_validate(n) for n in items],
+            unread_count=unread_count,
+            total=total_count,
+        )
+
+    @staticmethod
+    def get_unread_count(db: Session, current_user: User) -> int:
+        """Returns the number of unread notifications for badge display."""
+        stmt = select(func.count(Notification.id)).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False,
+        )
+        return db.execute(stmt).scalar() or 0
+
+    @staticmethod
+    def mark_as_read(db: Session, current_user: User, notification_id: int) -> NotificationOut:
+        """
+        Marks a specific notification as read.
+        Verifies customer ownership to prevent IDOR vulnerabilities.
+        """
+        stmt = select(Notification).where(
+            Notification.id == notification_id,
+            Notification.user_id == current_user.id,
+        )
+        notification = db.execute(stmt).scalar_one_or_none()
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found.",
+            )
+
+        notification.is_read = True
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+        return NotificationOut.model_validate(notification)
+
+    @staticmethod
+    def mark_all_as_read(db: Session, current_user: User) -> int:
+        """Marks all notifications for the current customer as read."""
+        stmt = select(Notification).where(
+            Notification.user_id == current_user.id,
+            Notification.is_read == False,
+        )
+        unread_notifications = db.execute(stmt).scalars().all()
+        count = len(unread_notifications)
+        for n in unread_notifications:
+            n.is_read = True
+            db.add(n)
+        db.commit()
+        return count
+
+    @staticmethod
+    def create_notification(
+        db: Session,
+        user_id: int,
+        title: str,
+        message: str,
+        notification_type: str = NotificationType.GENERAL.value,
+        reference_id: Optional[int] = None,
+    ) -> NotificationOut:
+        """
+        Utility to create a notification for a user.
+        Used by service hooks or simulation endpoints.
+        """
+        notification = Notification(
+            user_id=user_id,
+            title=title.strip(),
+            message=message.strip(),
+            notification_type=notification_type,
+            reference_id=reference_id,
+            is_read=False,
+        )
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+        return NotificationOut.model_validate(notification)
+
